@@ -147,7 +147,6 @@ func (w *daemonWriter) Write(p []byte) (int, error) {
 func reportDaemonSync(out io.Writer, peer string, res Result, err error) {
 	if err != nil {
 		fmt.Fprintf(out, "sync with %s failed: %s\n", safe(peer), safe(err.Error()))
-		return
 	}
 	if res.Sent > 0 || res.Received.Imported > 0 || res.Received.Updated > 0 || res.Received.Conflicts > 0 {
 		fmt.Fprintf(out, "sync with %s: sent %d, received %d, updated %d, conflicts %d\n",

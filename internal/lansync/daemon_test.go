@@ -166,3 +166,20 @@ func (c *daemonCapture) text() string {
 	defer c.mu.Unlock()
 	return c.buf.String()
 }
+
+func TestDaemonReportsPartialImportWhenTransferFails(t *testing.T) {
+	var out bytes.Buffer
+	reportDaemonSync(&out, "laptop", Result{Received: bundle.ImportResult{
+		Imported: 2, Updated: 1, Conflicts: 1,
+		Warnings: []string{"session diverged; local file preserved"},
+	}}, errors.New("send offer interrupted"))
+	for _, want := range []string{
+		"failed: send offer interrupted",
+		"received 2, updated 1, conflicts 1",
+		"session diverged; local file preserved",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("partial sync omitted %q: %s", want, out.String())
+		}
+	}
+}
