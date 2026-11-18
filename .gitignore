@@ -30,3 +30,6 @@ coverage.html
 Thumbs.db
 .idea/
 .vscode/
+
+# Python script qualification
+__pycache__/

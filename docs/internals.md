@@ -217,31 +217,21 @@ machine.
 
 ### How a release is built
 
-Pushing a `v*` tag runs the release workflow: `meta` (resolve the version) →
-`dependencies` and `build` → `smoke` → `assemble` → `publish`. Third-party
-actions are pinned to a commit SHA, so a moved tag cannot change what runs.
+In the controlled `DreamwareDevelopment/codex-claude-transfer` fork, pushing a
+`v*` tag runs `meta` → `dependencies` and `build` → Linux/Windows `smoke` → a
+native-handoff draft. Both Darwin cross-compiles remain. Deliberate actual-Darwin
+Go build/vet/test and packaged arm64 smoke then bind an authenticated founder
+operator receipt to the exact original archive digest. A separate Linux
+continuation verifies that custody before `assemble` → `publish`, preserving
+SBOM, checksums, Sigstore/OIDC and artifact-attestation gates. No GitHub-hosted
+macOS runner is allocated.
 
-Two of those steps exist to catch a broken release before it exists:
-
-- **`smoke`** unpacks each archive and runs the packaged binary end-to-end on a
-  runner of that platform — Linux, macOS (darwin/arm64) and Windows — through
-  `scripts/smoke-artifact.sh`: version, doctor, export, diff, import, undo,
-  `skill install/init/show`, and a cwd round trip that imports with
-  `--map-cwd-here` and then finds the session again with `--project .`. On POSIX
-  it also covers unicode project paths, a project under `$TMPDIR` (a symlinked
-  path on macOS), file permissions, and relocate + undo.
-- **`dependencies`** does not just build the Gentoo module archive, it unpacks
-  it elsewhere and builds `cct` from it with `GOPROXY=off` and
-  `GOTOOLCHAIN=local`, so an archive that is missing a module fails the release
-  rather than the packager.
-
-The same workflow can be started by hand (**Actions → Release → Run workflow**)
-as a dry run. Everything runs except `publish`, under a version like
-`v0.0.0-dryrun-<sha>`, and the assembled files are uploaded as a workflow
-artifact. That is how changes to the workflow itself get tested without
-consuming a version number. Signing and attestation are skipped by default in a
-dry run because both write to a public transparency log; tick `sign` to exercise
-them (the run then also verifies its own signature with `cosign verify-blob`).
+The dependency job still unpacks its archive and builds with `GOPROXY=off` and
+`GOTOOLCHAIN=local`. The native smoke still uses `scripts/smoke-artifact.sh` for
+fake-home export/import/undo, cwd/symlink handling and POSIX permissions. A
+missing or failed native handoff blocks assembly/publication; it never becomes
+a platform skip. Manual producers remain dry runs and sign only when explicitly
+requested. See [the exact operator sequence and trust limits](native-release.md).
 
 ## Claude Code research
 
