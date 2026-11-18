@@ -179,7 +179,7 @@ class NativeReleaseTest(unittest.TestCase):
                 with self.assertRaisesRegex(native.Refused, "digest mismatch"):
                     native.download_asset(asset, path)
 
-    def verification(self, scratch, *, wrong_digest=False, raced=False):
+    def verification(self, scratch, *, wrong_digest=False, raced=False, tag_moved=False):
         import hashlib
         self.receipt["archive_sha256"] = "0" * 64 if wrong_digest else hashlib.sha256(b"native archive").hexdigest()
         log = b"native log"
@@ -196,7 +196,8 @@ class NativeReleaseTest(unittest.TestCase):
             archive.write_bytes(b"native archive")
             return archive
         args = SimpleNamespace(run=100, attempt=2, draft=7, output=Path(scratch) / "qualified", compare=None)
-        with patch.object(native, "producer", return_value=self.binding), patch.object(native, "clean_source", return_value="a" * 40), patch.object(native, "api", side_effect=[self.draft, after]), patch.object(native, "download_asset", side_effect=download_asset), patch.object(native, "download_artifact", side_effect=download_artifact), patch.object(native, "github_outputs") as emit:
+        tag = {"sha": ("f" if tag_moved else "a") * 40}
+        with patch.object(native, "producer", return_value=self.binding), patch.object(native, "clean_source", return_value="a" * 40), patch.object(native, "api", side_effect=[self.draft, tag, after, tag]), patch.object(native, "download_asset", side_effect=download_asset), patch.object(native, "download_artifact", side_effect=download_artifact), patch.object(native, "github_outputs") as emit:
             native.verify(args)
             return args, emit.call_args.args[0]
 
@@ -215,6 +216,11 @@ class NativeReleaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             with self.assertRaisesRegex(native.Refused, "custody or producer raced"):
                 self.verification(scratch, raced=True)
+
+    def test_live_release_tag_binding(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            with self.assertRaisesRegex(native.Refused, "release tag source changed"):
+                self.verification(scratch, tag_moved=True)
 
     def package(self, directory, *, link=False, header=b"notMachO"):
         import tarfile

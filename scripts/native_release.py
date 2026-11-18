@@ -154,6 +154,11 @@ def validate_draft(draft, binding):
     return record
 
 
+def verify_tag(binding, record):
+    if record["is_release"]:
+        require(api(f"repos/{REPO}/commits/{record['version']}")["sha"] == binding["source_sha"], "release tag source changed")
+
+
 def one_asset(draft, name, founder=False):
     matches = [asset for asset in draft.get("assets", []) if asset.get("name") == name]
     require(len(matches) == 1, "missing or ambiguous native asset: " + name)
@@ -298,6 +303,7 @@ def verify(args):
     require(clean_source() == binding["source_sha"], "continuation source must equal current producer/default source")
     draft = api(f"repos/{REPO}/releases/{args.draft}")
     record = validate_draft(draft, binding)
+    verify_tag(binding, record)
     receipt_asset, log_asset = one_asset(draft, RECEIPT, True), one_asset(draft, LOG, True)
     args.output.mkdir(parents=True, exist_ok=False)
     receipt_path, log_path = args.output / RECEIPT, args.output / LOG
@@ -316,6 +322,7 @@ def verify(args):
     require(validate_draft(final_draft, binding) == record and
             one_asset(final_draft, RECEIPT, True) == receipt_asset and one_asset(final_draft, LOG, True) == log_asset and
             producer(args.run, args.attempt) == binding, "native custody or producer raced")
+    verify_tag(binding, record)
     github_outputs({"version": record["version"], "is_release": record["is_release"], "sign": record["sign"], "draft_id": args.draft})
     print("Verified authenticated operator proof and exact original producer archives.")
 

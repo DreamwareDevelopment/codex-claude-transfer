@@ -395,6 +395,19 @@
       "tests": [
         "scripts.test_native_release.NativeReleaseTest.test_packaged_smoke_controls"
       ]
+    },
+    {
+      "id": "live_release_tag_binding",
+      "edits": [
+        {
+          "path": "scripts/native_release.py",
+          "before": "api(f\"repos/{REPO}/commits/{record['version']}\")[\"sha\"] == binding[\"source_sha\"]",
+          "after": "True"
+        }
+      ],
+      "tests": [
+        "scripts.test_native_release.NativeReleaseTest.test_live_release_tag_binding"
+      ]
     }
   ]
 }
