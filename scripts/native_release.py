@@ -215,7 +215,7 @@ def packaged_smoke(archive, version, log):
         binary_path = directory / top / "cct"
         with binary_path.open("rb") as stream:
             require(stream.read(8) == b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01", "packaged binary must be thin arm64 Mach-O")
-        run(["bash", str(ROOT / "scripts/smoke-artifact.sh"), str(binary_path)], cwd=directory, log=log)
+        run(["bash", str(ROOT / "scripts/smoke-artifact.sh"), str(Path(top) / "cct")], cwd=directory, log=log)
     require(digest(archive) == before, "native archive changed during smoke")
     return before
 

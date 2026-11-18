@@ -255,6 +255,7 @@ class NativeReleaseTest(unittest.TestCase):
             archive = self.package(Path(scratch), header=b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01")
             self.assertEqual(native.packaged_smoke(archive, "v2.1.0", io.BytesIO()), native.digest(archive))
             self.assertEqual(execute.call_count, 1)
+            self.assertEqual(execute.call_args.args[0][-1], "cct_v2.1.0_darwin_arm64/cct")
 
 
 if __name__ == "__main__":

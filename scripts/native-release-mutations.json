@@ -388,8 +388,8 @@
       "edits": [
         {
           "path": "scripts/native_release.py",
-          "before": "run([\"bash\", str(ROOT / \"scripts/smoke-artifact.sh\"), str(binary_path)], cwd=directory, log=log)",
-          "after": "None  # mutation: packaged workload omitted"
+          "before": "str(Path(top) / \"cct\")], cwd=directory, log=log)",
+          "after": "str(binary_path)], cwd=directory, log=log)"
         }
       ],
       "tests": [
