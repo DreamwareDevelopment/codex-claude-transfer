@@ -104,13 +104,13 @@ class NativeReleaseTest(unittest.TestCase):
 
     def test_published_draft(self):
         self.draft["draft"] = False
-        with self.assertRaisesRegex(native.Refused, "published draft"):
+        with patch.object(native, "verify_tag"), self.assertRaisesRegex(native.Refused, "published draft"):
             native.validate_draft(self.draft, self.binding)
 
     def test_draft_binding(self):
         self.record["binding"] = dict(self.binding, attempt=1)
         self.draft["body"] = native.PREFIX + json.dumps(self.record)
-        with self.assertRaisesRegex(native.Refused, "producer binding"):
+        with patch.object(native, "verify_tag"), self.assertRaisesRegex(native.Refused, "producer binding"):
             native.validate_draft(self.draft, self.binding)
 
     def test_receipt_author(self):
