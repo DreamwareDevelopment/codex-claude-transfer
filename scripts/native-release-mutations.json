@@ -434,6 +434,19 @@
       "tests": [
         "scripts.test_native_release.NativeReleaseTest.test_dry_run_target_source"
       ]
+    },
+    {
+      "id": "artifact_endpoint_accepts_json",
+      "edits": [
+        {
+          "path": "scripts/native_release.py",
+          "before": "accept=\"application/vnd.github+json\"",
+          "after": "accept=\"application/octet-stream\""
+        }
+      ],
+      "tests": [
+        "scripts.test_native_release.NativeReleaseTest.test_artifact_endpoint_accepts_json"
+      ]
     }
   ]
 }

@@ -174,9 +174,9 @@ def one_asset(draft, name, founder=False):
     return asset
 
 
-def download(path, destination, max_size):
+def download(path, destination, max_size, *, accept="application/octet-stream"):
     with open(destination, "wb") as stream:
-        subprocess.run(["gh", "api", "-H", "Accept: application/octet-stream", path], cwd=ROOT, stdout=stream, check=True)
+        subprocess.run(["gh", "api", "-H", "Accept: " + accept, path], cwd=ROOT, stdout=stream, check=True)
     require(0 < destination.stat().st_size <= max_size, "download size out of bounds")
 
 
@@ -189,7 +189,7 @@ def download_asset(asset, destination):
 
 def download_artifact(artifact, directory):
     archive_zip = directory / (str(artifact["id"]) + ".zip")
-    download(f"repos/{REPO}/actions/artifacts/{artifact['id']}/zip", archive_zip, 2 * 1024 ** 3)
+    download(f"repos/{REPO}/actions/artifacts/{artifact['id']}/zip", archive_zip, 2 * 1024 ** 3, accept="application/vnd.github+json")
     require("sha256:" + digest(archive_zip) == artifact["digest"], "Actions artifact bytes changed")
     with zipfile.ZipFile(archive_zip) as archive:
         files = archive.infolist()
