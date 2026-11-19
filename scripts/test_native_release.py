@@ -180,6 +180,21 @@ class NativeReleaseTest(unittest.TestCase):
                 with self.assertRaisesRegex(native.Refused, "digest mismatch"):
                     native.download_asset(asset, path)
 
+    def test_artifact_endpoint_accepts_json(self):
+        import hashlib
+        import zipfile
+        with tempfile.TemporaryDirectory() as scratch:
+            directory = Path(scratch)
+            def download(_remote, destination, _limit, *, accept):
+                self.assertEqual(accept, "application/vnd.github+json")
+                with zipfile.ZipFile(destination, "w") as package:
+                    package.writestr("cct_fixture.tar.gz", b"archive bytes")
+                artifact["digest"] = "sha256:" + native.digest(destination)
+            artifact = {"id":123,"digest":"sha256:" + "a" * 64}
+            with patch.object(native,"download",side_effect=download):
+                path = native.download_artifact(artifact,directory)
+            self.assertEqual(path.read_bytes(),b"archive bytes")
+
     def verification(self, scratch, *, wrong_digest=False, raced=False, tag_moved=False):
         import hashlib
         self.receipt["archive_sha256"] = "0" * 64 if wrong_digest else hashlib.sha256(b"native archive").hexdigest()
