@@ -1,16 +1,13 @@
 name: Release
 
-# Builds cross-platform binaries and attaches them to a GitHub Release when you
-# push a version tag like v0.1.0. This does not publish anywhere else, does not
+# Builds cross-platform binaries into a draft when you push a version tag like
+# v0.1.0. Publication waits for the deliberate local native handoff. This does not publish anywhere else, does not
 # touch any server, and does not run automatically on normal pushes.
 #
-# It can also be started by hand (workflow_dispatch) as a DRY RUN: everything up
-# to and including the release assembly runs — build, packaged-artifact smoke
-# tests, the offline dependency-archive proof, SBOM, checksums, archive layout
-# and permission checks — but no GitHub Release is created. That is how changes
-# to this file get tested without burning a version number. Signing and
-# attestation are skipped by default in a dry run because both publish a public
-# record; tick `sign` to exercise them too.
+# A manual run builds a dry-run draft. Local Darwin CI and exact-archive smoke
+# must succeed before the separate Linux continuation assembles/signs. Dry-run
+# continuation never publishes; signing stays opt-in because it writes public
+# transparency records. No GitHub-hosted macOS runner is allocated.
 #
 # Third-party actions are pinned to a commit SHA (the tag is in the trailing
 # comment) so a moved tag cannot change what runs in a release build.
@@ -25,13 +22,31 @@ on:
         description: "Dry run: also run Sigstore signing and build attestation (publishes a public transparency-log record)"
         type: boolean
         default: false
+      producer_run:
+        description: "Continuation only: completed original build run ID"
+        type: string
+        default: ""
+      producer_attempt:
+        description: "Continuation only: exact original build attempt"
+        type: string
+        default: ""
+      draft_id:
+        description: "Continuation only: producer-created native handoff draft ID"
+        type: string
+        default: ""
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: cct-release-${{ inputs.draft_id || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   meta:
     name: Resolve version
+    if: inputs.producer_run == '' && inputs.producer_attempt == '' && inputs.draft_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -208,7 +223,6 @@ jobs:
       matrix:
         include:
           - { goos: linux, goarch: amd64, os: ubuntu-latest }
-          - { goos: darwin, goarch: arm64, os: macos-latest }
           - { goos: windows, goarch: amd64, os: windows-latest }
     runs-on: ${{ matrix.os }}
     steps:
@@ -232,31 +246,88 @@ jobs:
           echo "Testing packaged binary: $bin"
           bash scripts/smoke-artifact.sh "$bin"
 
+  native-handoff:
+    name: Prepare native handoff
+    needs: [meta, build, smoke, dependencies]
+    if: github.repository == 'DreamwareDevelopment/codex-claude-transfer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # draft custody only; publication belongs to continuation
+      actions: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Prepare draft after portable qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGN: ${{ inputs.sign == true }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$SIGN" = true ]; then args+=(--sign); fi
+          python3 scripts/native_release.py prepare --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" "${args[@]}"
+      - name: Native handoff summary
+        run: |
+          echo 'Builds and Linux/Windows smoke completed. Assembly/signing/publication require the deliberate actual-Darwin operator handoff in docs/native-release.md.' >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Verify authenticated native handoff
+    permissions:
+      contents: write # GitHub exposes draft releases only to push-capable tokens
+      actions: read
+    if: github.repository == 'DreamwareDevelopment/codex-claude-transfer' && github.ref == 'refs/heads/Main' && (inputs.producer_run != '' || inputs.producer_attempt != '' || inputs.draft_id != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.proof.outputs.version }}
+      is_release: ${{ steps.proof.outputs.is_release }}
+      sign: ${{ steps.proof.outputs.sign }}
+      draft_id: ${{ steps.proof.outputs.draft_id }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify proof against exact producer archives
+        id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          PRODUCER_ATTEMPT: ${{ inputs.producer_attempt }}
+          DRAFT_ID: ${{ inputs.draft_id }}
+        run: python3 scripts/native_release.py verify --run "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" --draft "$DRAFT_ID" --output "$RUNNER_TEMP/native-qualified"
+
   assemble:
     name: Assemble release files
-    needs: [meta, build, smoke, dependencies]
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write # read the unpublished native handoff draft and its assets
+      actions: read
       id-token: write # keyless (OIDC) Sigstore signing
       attestations: write # GitHub artifact attestations
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Download artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          path: dist
-          merge-multiple: true
+      - name: Verify native custody and download exact original archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          PRODUCER_ATTEMPT: ${{ inputs.producer_attempt }}
+          DRAFT_ID: ${{ inputs.draft_id }}
+        run: python3 scripts/native_release.py verify --run "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" --draft "$DRAFT_ID" --output dist
 
       - name: Generate SBOM (SPDX)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: spdx-json
-          output-file: dist/cct_${{ needs.meta.outputs.version }}_sbom.spdx.json
+          output-file: dist/cct_${{ needs.verify.outputs.version }}_sbom.spdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -271,7 +342,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ needs.meta.outputs.version }}"
+          version="${{ needs.verify.outputs.version }}"
           cd dist
           for want in \
             "cct_${version}_linux_amd64.tar.gz" \
@@ -290,11 +361,11 @@ jobs:
       # attestation, so every published asset is verifiable. Both write a public
       # record, so a dry run only does it when explicitly asked.
       - name: Install cosign
-        if: needs.meta.outputs.is_release == 'true' || needs.meta.outputs.sign == 'true'
+        if: needs.verify.outputs.is_release == 'true' || needs.verify.outputs.sign == 'true'
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Sign checksum file (Sigstore keyless)
-        if: needs.meta.outputs.is_release == 'true' || needs.meta.outputs.sign == 'true'
+        if: needs.verify.outputs.is_release == 'true' || needs.verify.outputs.sign == 'true'
         shell: bash
         run: |
           cosign sign-blob --yes \
@@ -307,7 +378,7 @@ jobs:
             dist/SHA256SUMS.txt
 
       - name: Attest build provenance
-        if: needs.meta.outputs.is_release == 'true' || needs.meta.outputs.sign == 'true'
+        if: needs.verify.outputs.is_release == 'true' || needs.verify.outputs.sign == 'true'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-path: |
@@ -322,39 +393,53 @@ jobs:
           path: dist/*
 
       - name: Dry-run summary
-        if: needs.meta.outputs.is_release != 'true'
+        if: needs.verify.outputs.is_release != 'true'
         shell: bash
         run: |
           {
             echo "### Release dry run"
             echo
-            echo "Built, smoke-tested and assembled \`${{ needs.meta.outputs.version }}\`."
-            echo "No GitHub Release was created. Signing/attestation: \`${{ needs.meta.outputs.sign }}\`."
+            echo "Built, smoke-tested and assembled \`${{ needs.verify.outputs.version }}\`."
+            echo "No GitHub Release was created. Signing/attestation: \`${{ needs.verify.outputs.sign }}\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish release
-    needs: [meta, assemble]
+    needs: [verify, assemble]
     # Only a real version tag publishes. A manual dry run stops after assemble.
-    if: needs.meta.outputs.is_release == 'true'
+    if: needs.verify.outputs.is_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # create the release and upload assets
+      contents: write # upload files and publish the already qualified draft
+      actions: read
     steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Download the assembled release files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-files
           path: dist
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
-        with:
-          files: |
-            dist/*.tar.gz
-            dist/*.tar.xz
-            dist/SHA256SUMS.txt
-            dist/SHA256SUMS.txt.sigstore.json
-            dist/cct_${{ needs.meta.outputs.version }}_sbom.spdx.json
-          generate_release_notes: true
+      - name: Recheck exact source, native custody and assembled archive bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          PRODUCER_ATTEMPT: ${{ inputs.producer_attempt }}
+          DRAFT_ID: ${{ inputs.draft_id }}
+        run: |
+          python3 scripts/native_release.py verify --run "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" --draft "$DRAFT_ID" --output "$RUNNER_TEMP/native-recheck" --compare dist
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+
+      - name: Upload signed files and publish the qualified draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRAFT_ID: ${{ needs.verify.outputs.draft_id }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release upload "$VERSION" dist/*.tar.gz dist/*.tar.xz dist/SHA256SUMS.txt dist/SHA256SUMS.txt.sigstore.json dist/*_sbom.spdx.json --repo DreamwareDevelopment/codex-claude-transfer
+          gh api --method PATCH "repos/DreamwareDevelopment/codex-claude-transfer/releases/$DRAFT_ID" -F draft=false -f name="$VERSION"
