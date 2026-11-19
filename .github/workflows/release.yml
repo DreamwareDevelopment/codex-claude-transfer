@@ -275,6 +275,9 @@ jobs:
 
   verify:
     name: Verify authenticated native handoff
+    permissions:
+      contents: write # GitHub exposes draft releases only to push-capable tokens
+      actions: read
     if: github.repository == 'DreamwareDevelopment/codex-claude-transfer' && github.ref == 'refs/heads/Main' && (inputs.producer_run != '' || inputs.producer_attempt != '' || inputs.draft_id != '')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -303,7 +306,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write # read the unpublished native handoff draft and its assets
       actions: read
       id-token: write # keyless (OIDC) Sigstore signing
       attestations: write # GitHub artifact attestations

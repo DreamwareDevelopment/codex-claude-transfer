@@ -44,7 +44,8 @@ class NativeReleaseTest(unittest.TestCase):
 
     def test_valid_controls(self):
         self.assertEqual(self.producer()["source_sha"], "a" * 40)
-        self.assertEqual(native.validate_draft(self.draft, self.binding), self.record)
+        with patch.object(native, "verify_tag"):
+            self.assertEqual(native.validate_draft(self.draft, self.binding), self.record)
         self.assertEqual(native.one_asset(self.draft, native.LOG, True)["id"], 42)
         self.check_receipt()
 
@@ -197,7 +198,7 @@ class NativeReleaseTest(unittest.TestCase):
             return archive
         args = SimpleNamespace(run=100, attempt=2, draft=7, output=Path(scratch) / "qualified", compare=None)
         tag = {"sha": ("f" if tag_moved else "a") * 40}
-        with patch.object(native, "producer", return_value=self.binding), patch.object(native, "clean_source", return_value="a" * 40), patch.object(native, "api", side_effect=[self.draft, tag, after, tag]), patch.object(native, "download_asset", side_effect=download_asset), patch.object(native, "download_artifact", side_effect=download_artifact), patch.object(native, "github_outputs") as emit:
+        with patch.object(native, "producer", return_value=self.binding), patch.object(native, "clean_source", return_value="a" * 40), patch.object(native, "api", side_effect=[self.draft, tag, tag, after, tag, tag]), patch.object(native, "download_asset", side_effect=download_asset), patch.object(native, "download_artifact", side_effect=download_artifact), patch.object(native, "github_outputs") as emit:
             native.verify(args)
             return args, emit.call_args.args[0]
 
@@ -221,6 +222,19 @@ class NativeReleaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             with self.assertRaisesRegex(native.Refused, "release tag source changed"):
                 self.verification(scratch, tag_moved=True)
+
+    def test_existing_tag_target_commitish_is_unused(self):
+        self.draft["target_commitish"] = "Main"
+        with patch.object(native, "verify_tag") as verify:
+            self.assertEqual(native.validate_draft(self.draft, self.binding), self.record)
+            verify.assert_called_once_with(self.binding, self.record)
+
+    def test_dry_run_target_source(self):
+        binding = dict(self.binding, event="workflow_dispatch")
+        record = dict(self.record, binding=binding, version="v0.0.0-dryrun-aaaaaaa", is_release=False)
+        draft = dict(self.draft, tag_name="native-handoff-100-2", target_commitish="Main", body=native.PREFIX + json.dumps(record))
+        with self.assertRaisesRegex(native.Refused, "dry-run draft source mismatch"):
+            native.validate_draft(draft, binding)
 
     def package(self, directory, *, link=False, header=b"notMachO"):
         import tarfile

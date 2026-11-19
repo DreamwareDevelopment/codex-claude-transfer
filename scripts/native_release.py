@@ -141,7 +141,7 @@ def version_for(binding):
 
 
 def validate_draft(draft, binding):
-    require(draft.get("draft") is True and draft.get("target_commitish") == binding["source_sha"], "wrong or published draft")
+    require(draft.get("draft") is True, "wrong or published draft")
     body = draft.get("body", "")
     require(body.startswith(PREFIX) and len(body) <= 16384, "missing bounded draft binding")
     record = json.loads(body[len(PREFIX):])
@@ -149,6 +149,10 @@ def validate_draft(draft, binding):
     require(record.get("schema_version") == 1 and record.get("binding") == binding and
             record.get("version") == version and record.get("is_release") is is_release and
             type(record.get("sign")) is bool, "draft producer binding mismatch")
+    if is_release:
+        verify_tag(binding, record)
+    else:
+        require(draft.get("target_commitish") == binding["source_sha"], "dry-run draft source mismatch")
     expected_tag = version if is_release else f"native-handoff-{binding['run_id']}-{binding['attempt']}"
     require(draft.get("tag_name") == expected_tag, "draft tag mismatch")
     return record

@@ -128,7 +128,7 @@
       "edits": [
         {
           "path": "scripts/native_release.py",
-          "before": "draft.get(\"draft\") is True and draft.get(\"target_commitish\") == binding[\"source_sha\"]",
+          "before": "draft.get(\"draft\") is True",
           "after": "True"
         }
       ],
@@ -407,6 +407,32 @@
       ],
       "tests": [
         "scripts.test_native_release.NativeReleaseTest.test_live_release_tag_binding"
+      ]
+    },
+    {
+      "id": "existing_tag_target_commitish_is_unused",
+      "edits": [
+        {
+          "path": "scripts/native_release.py",
+          "before": "if is_release:\n        verify_tag(binding, record)",
+          "after": "if is_release:\n        pass  # mutation: existing tag no longer independently bound"
+        }
+      ],
+      "tests": [
+        "scripts.test_native_release.NativeReleaseTest.test_existing_tag_target_commitish_is_unused"
+      ]
+    },
+    {
+      "id": "dry_run_target_source",
+      "edits": [
+        {
+          "path": "scripts/native_release.py",
+          "before": "draft.get(\"target_commitish\") == binding[\"source_sha\"]",
+          "after": "True"
+        }
+      ],
+      "tests": [
+        "scripts.test_native_release.NativeReleaseTest.test_dry_run_target_source"
       ]
     }
   ]
